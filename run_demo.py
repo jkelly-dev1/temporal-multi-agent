@@ -8,6 +8,7 @@ No external Temporal CLI, Docker, or API key required:
 
 import asyncio
 import sys
+import time
 import uuid
 
 from temporalio.testing import WorkflowEnvironment
@@ -18,6 +19,43 @@ from multi_agent.report import print_report
 from multi_agent.shared import ResearchRequest
 from multi_agent.worker import ACTIVITIES, WORKFLOWS
 from multi_agent.workflows import OrchestratorWorkflow
+
+
+_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+async def _spinner(handle, stop: asyncio.Event) -> None:
+    """Progress indicator that reports what the workflow is actually doing.
+
+    The stage text comes from the workflow's `get_stage` query, so this is not
+    a decorative spinner -- it is live observability of a running execution,
+    polled once a second while the frames animate at 10fps.
+
+    Writes to stderr and no-ops when stderr is not a TTY, so piping or
+    redirecting the demo's output stays clean.
+    """
+    if not sys.stderr.isatty():
+        return
+    started = time.monotonic()
+    stage, next_poll, i = "starting", 0.0, 0
+    try:
+        while not stop.is_set():
+            now = time.monotonic()
+            if now >= next_poll:
+                try:
+                    stage = await handle.query(OrchestratorWorkflow.get_stage)
+                except Exception:  # completed, or no worker to answer -- keep last
+                    pass
+                next_poll = now + 1.0
+            sys.stderr.write(
+                f"\r{_FRAMES[i % len(_FRAMES)]} {stage}… ({now - started:.0f}s)\033[K"
+            )
+            sys.stderr.flush()
+            i += 1
+            await asyncio.sleep(0.1)
+    finally:
+        sys.stderr.write("\r\033[K")  # erase the line on the way out
+        sys.stderr.flush()
 
 
 async def main() -> None:
@@ -44,7 +82,16 @@ async def main() -> None:
             print("approving plan (human-in-the-loop signal)...")
             await handle.signal(OrchestratorWorkflow.approve_plan)
 
-            report = await handle.result()
+            # The agents fan out here; with a real model this is the slow part,
+            # so show what the orchestrator is doing while we wait.
+            stop = asyncio.Event()
+            spin = asyncio.create_task(_spinner(handle, stop))
+            try:
+                report = await handle.result()
+            finally:
+                stop.set()
+                await spin
+
             print_report(report)
 
 

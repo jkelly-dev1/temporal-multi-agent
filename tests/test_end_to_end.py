@@ -40,11 +40,11 @@ async def test_pipeline_completes_and_fans_out():
     assert len(report.sections) == 4  # planner -> 4 concurrent agents
     assert report.summary.strip()
     assert report.provider == "mock"
-    # every agent produced a scored finding with recorded sources
+    # every agent produced a scored finding with a recorded trace id
     for s in report.sections:
         assert 0.0 <= s.confidence <= 1.0
         assert s.finding.strip()
-        assert len(s.sources) == 2
+        assert len(s.trace_ids) == 1
 
 
 @pytest.mark.asyncio

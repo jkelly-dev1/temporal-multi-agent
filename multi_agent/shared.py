@@ -10,6 +10,12 @@ workflow sandbox.
 from dataclasses import dataclass, field
 from typing import List
 
+# Findings scoring at or above this are accepted; below it the agent gets one
+# feedback-guided rewrite. Defined here because the workflow (which decides
+# whether to refine), the activities, and the providers (which score) must all
+# agree -- it was previously duplicated in all three.
+CONFIDENCE_BAR = 0.70
+
 
 @dataclass
 class ResearchRequest:
@@ -55,7 +61,11 @@ class AgentResult:
     finding: str
     confidence: float
     attempts: int
-    sources: List[str] = field(default_factory=list)
+    # Synthetic per-attempt identifiers, used to show that each agent's work is
+    # individually addressable in the workflow history. These are NOT citations
+    # and carry no provenance -- a real pipeline would attach retrieved
+    # documents here, which is why the shape exists at all.
+    trace_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

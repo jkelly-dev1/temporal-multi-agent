@@ -26,6 +26,7 @@ from temporalio.common import RetryPolicy
 with workflow.unsafe.imports_passed_through():
     from . import activities
     from .shared import (
+        CONFIDENCE_BAR,
         AgentResult,
         Critique,
         FinalReport,
@@ -46,8 +47,6 @@ DEFAULT_RETRY = RetryPolicy(
     maximum_attempts=5,
 )
 
-_CONFIDENCE_BAR = 0.70
-
 
 @workflow.defn
 class ResearchAgentWorkflow:
@@ -67,19 +66,25 @@ class ResearchAgentWorkflow:
             result = await workflow.execute_activity(
                 activities.research_subtask,
                 ResearchInput(subtask=subtask, attempt=attempt, feedback=feedback),
-                start_to_close_timeout=timedelta(seconds=30),
-                heartbeat_timeout=timedelta(seconds=10),
+                # Sized for a real model call, not the mock: a live completion
+                # can take tens of seconds. The heartbeat timeout is what
+                # actually detects a hung worker (the activity beats every 2s),
+                # so start_to_close can stay generous without losing liveness.
+                start_to_close_timeout=timedelta(minutes=3),
+                heartbeat_timeout=timedelta(seconds=30),
                 retry_policy=DEFAULT_RETRY,
             )
             critique: Critique = await workflow.execute_activity(
                 activities.critique_finding,
                 result,
-                start_to_close_timeout=timedelta(seconds=15),
+                # The critic is an LLM-as-judge on the real path, so this needs
+                # model-call sizing too -- not the 15s that suited the mock.
+                start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=DEFAULT_RETRY,
             )
             result.confidence = critique.score
             result.attempts = attempt
-            if critique.score >= _CONFIDENCE_BAR or attempt >= self.MAX_ATTEMPTS:
+            if critique.score >= CONFIDENCE_BAR or attempt >= self.MAX_ATTEMPTS:
                 return result
             attempt += 1
             feedback = critique.feedback
@@ -155,7 +160,9 @@ class OrchestratorWorkflow:
         synth: SynthResult = await workflow.execute_activity(
             activities.synthesize_report,
             SynthInput(topic=req.topic, results=results, review=review),
-            start_to_close_timeout=timedelta(seconds=30),
+            # Also a real model call -- same sizing rationale as the research
+            # activity above.
+            start_to_close_timeout=timedelta(minutes=3),
             retry_policy=DEFAULT_RETRY,
         )
 

@@ -11,11 +11,17 @@ Only ACTIVITIES import this module. Workflow code never calls a provider directl
 
 import os
 
+from .shared import CONFIDENCE_BAR, Critique
+
 
 class AgentProvider:
     name = "base"
 
     async def complete(self, system: str, prompt: str) -> str:  # pragma: no cover
+        raise NotImplementedError
+
+    async def critique(self, angle: str, finding: str) -> Critique:  # pragma: no cover
+        """Score a finding 0.0-1.0 and say what would improve it."""
         raise NotImplementedError
 
 
@@ -45,6 +51,21 @@ class MockProvider(AgentProvider):
             )
         return out
 
+    async def critique(self, angle: str, finding: str) -> Critique:
+        """Deterministic stand-in for an LLM judge: score on length.
+
+        Crude on purpose. A first-pass mock finding lands below the bar and a
+        revised one lands above it, so the reflection loop is exercised
+        identically on every run -- which is what makes the tests hermetic.
+        """
+        score = round(min(len(finding) / 300.0, 1.0), 3)
+        if score >= CONFIDENCE_BAR:
+            return Critique(score=score, feedback="Solid; meets the bar.")
+        return Critique(
+            score=score,
+            feedback="Too generic -- add concrete trade-offs, failure modes, and a default.",
+        )
+
 
 class AnthropicProvider(AgentProvider):
     """Optional real-LLM path. Requires `pip install anthropic` and
@@ -55,24 +76,73 @@ class AnthropicProvider(AgentProvider):
     def __init__(self) -> None:
         import anthropic  # imported lazily so the demo runs without the dep
 
-        self._client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
-        # Configurable: set AGENT_MODEL to your current model id.
-        self._model = os.environ.get("AGENT_MODEL", "claude-sonnet-4-5")
+        # Async client: activities already run on the worker's event loop, so
+        # there is no reason to burn a thread on a network-bound call.
+        self._client = anthropic.AsyncAnthropic()  # reads ANTHROPIC_API_KEY
+        # Configurable: set AGENT_MODEL to override.
+        self._model = os.environ.get("AGENT_MODEL", "claude-opus-4-8")
 
     async def complete(self, system: str, prompt: str) -> str:
-        import asyncio
+        msg = await self._client.messages.create(
+            model=self._model,
+            max_tokens=1024,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        # content is a list of blocks; only text blocks carry prose.
+        return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
-        def _call() -> str:
-            msg = self._client.messages.create(
-                model=self._model,
-                max_tokens=1024,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    async def critique(self, angle: str, finding: str) -> Critique:
+        """Real LLM-as-judge.
 
-        # Run the blocking SDK call off the event loop.
-        return await asyncio.to_thread(_call)
+        The response is constrained to a JSON schema (structured outputs), so
+        the score is guaranteed parseable rather than scraped out of prose --
+        the difference between a judge you can build control flow on and one
+        that occasionally returns "I'd rate this an 8/10!".
+        """
+        import json
+
+        msg = await self._client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            system=(
+                "You are a demanding reviewer. Score the finding on whether it is "
+                "specific and actionable for an engineer: 1.0 is concrete with "
+                "real trade-offs and failure modes, 0.0 is generic filler. Give "
+                "one sentence of feedback naming the single biggest improvement."
+            ),
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Topic angle: {angle}\n\nFinding:\n{finding}",
+                }
+            ],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "score": {
+                                "type": "number",
+                                "description": "Quality from 0.0 (generic) to 1.0 (concrete).",
+                            },
+                            "feedback": {
+                                "type": "string",
+                                "description": "One sentence naming the biggest improvement.",
+                            },
+                        },
+                        "required": ["score", "feedback"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        )
+        text = next(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        data = json.loads(text)
+        # Clamp: the schema can't express a numeric range, so enforce it here.
+        score = round(max(0.0, min(float(data["score"]), 1.0)), 3)
+        return Critique(score=score, feedback=data["feedback"])
 
 
 _PROVIDER = None

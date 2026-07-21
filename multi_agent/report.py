@@ -14,6 +14,6 @@ def print_report(report: FinalReport) -> None:
             f"(confidence={s.confidence}, attempts={s.attempts})"
         )
         print(f"      {s.finding}")
-        print(f"      sources: {', '.join(s.sources)}")
+        print(f"      trace: {', '.join(s.trace_ids)}")
     print("\nREVIEW\n  " + report.review.overall)
     print(f"  avg_confidence={report.review.avg_confidence}\n{line}")
