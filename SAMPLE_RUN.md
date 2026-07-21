@@ -6,10 +6,10 @@ self-critique behaviour can be inspected without an API key.
 - **Captured:** 2026-07-20
 - **Command:** `AGENT_PROVIDER=anthropic python run_demo.py "designing a fleet-telemetry ingestion pipeline"`
 - **Model:** `claude-opus-4-8` (the `AGENT_MODEL` default)
-- **Model calls:** 15 — 7 research passes (4 first attempts + 3 rewrites), 7
+- **Model calls:** 15 total: 7 research passes (4 first attempts + 3 rewrites), 7
   LLM-as-judge critiques (one per pass), 1 synthesis
 
-> A real captured run, reproduced unedited — including the one section the
+> A real captured run, reproduced unedited, including the one section the
 > judge was least impressed by. With `AGENT_PROVIDER` unset the demo uses the
 > deterministic mock instead and produces obvious placeholder prose.
 
@@ -23,7 +23,7 @@ alone.
 The difference is legible in the output, not just in a counter. Compare the
 rewritten section 4 against the untouched section 3. Section 3 says to use
 "idempotent writes, event-time watermarking, and deduplication" and to route
-malformed payloads to a dead-letter queue — all true, all unactionable. Section
+malformed payloads to a dead-letter queue, all true, all unactionable. Section
 4 says to set `batch.size` to 64–256KB with `linger.ms` of 20–50ms, size
 watermarks to the p99 observed skew (30–90s for cellular fleets), key
 deduplication on a device-message-UUID over a 15-minute state TTL so retries
@@ -46,7 +46,7 @@ Average 0.867.
 Scores come from an LLM-as-judge constrained by a JSON schema, so `score`
 arrives as a validated number the workflow can branch on rather than something
 scraped out of prose. On the mock path the same seam uses a deterministic
-length heuristic, which is what keeps the test suite hermetic — see the
+length heuristic, which is what keeps the test suite hermetic; see the
 README's "Use a real LLM" section.
 
 **This is not deterministic.** Which sections get refined varies run to run;

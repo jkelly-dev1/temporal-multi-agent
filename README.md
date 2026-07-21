@@ -1,19 +1,21 @@
 # Temporal Multi-Agent Orchestration Demo
 
+[![tests](https://github.com/jkelly-dev1/temporal-multi-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jkelly-dev1/temporal-multi-agent/actions/workflows/ci.yml)
+
 A small but production-shaped **multi-agent platform** built on
 [Temporal](https://temporal.io): a **main orchestrator agent** plans a task,
 coordinates a fleet of **specialized agents** that run concurrently, each agent
 **self-critiques and refines** its own work, and the orchestrator **reviews and
-synthesizes** the result — all as **durable, replay-safe** workflows.
+synthesizes** the result, all as **durable, replay-safe** workflows.
 
 It runs **fully offline** with a deterministic mock "brain," so `python run_demo.py`
 works with no API key, no Docker, and no external Temporal server. Point it at a
-real Claude model by setting two env vars (see below) — the orchestration code
+real Claude model by setting two env vars (see below); the orchestration code
 doesn't change.
 
 ## Why Temporal
 
-The hard part of a multi-agent platform isn't the prompts — it's the *systems*:
+The hard part of a multi-agent platform isn't the prompts; it's the *systems*:
 coordinating long-running, failure-prone work across many concurrent agents and
 recovering cleanly when something dies mid-flight. Temporal gives us **durable
 execution**: workflow state is reconstructed by replaying an event history, so a
@@ -41,7 +43,7 @@ into a tractable, testable engineering problem.
 ```
 
 - **Workflows** (`workflows.py`) hold the deterministic coordination logic. No
-  I/O, clocks, or randomness — that's what makes them replayable.
+  I/O, clocks, or randomness; that's what makes them replayable.
 - **Activities** (`activities.py`) do all the side-effecting work (the LLM/tool
   calls). Temporal retries them independently with backoff and records results
   in history.
@@ -65,7 +67,7 @@ into a tractable, testable engineering problem.
 
 ## How it maps to an agent-platform role
 
-- *"core infrastructure for multi-agent orchestration — task planning,
+- *"core infrastructure for multi-agent orchestration, task planning,
   coordination, execution, and recovery"* → the orchestrator + child agents +
   retry/heartbeat/reflection.
 - *"platform primitives … that enable internal teams to build and deploy new
@@ -85,13 +87,13 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Option A — one command, zero setup** (in-process dev server, no Docker/CLI):
+**Option A: one command, zero setup** (in-process dev server, no Docker/CLI):
 
 ```bash
 python run_demo.py "designing a fleet-telemetry ingestion pipeline"
 ```
 
-**Option B — real server + Web UI** (great for showing observability):
+**Option B: real server + Web UI** (great for showing observability):
 
 ```bash
 temporal server start-dev          # UI at http://localhost:8233
@@ -121,7 +123,7 @@ backed by a test that fails if the property breaks.
 
 Two details worth noting, because they're the parts that are easy to get wrong:
 
-- After the worker dies the workflow is **not queryable** — queries are answered
+- After the worker dies the workflow is **not queryable**; queries are answered
   by a worker replaying history, so with no worker there is nobody to answer.
   Signals are still accepted, because the service buffers them. Durable state and
   live observability are different guarantees.
@@ -143,11 +145,11 @@ and durability are identical.
 
 **The critic swaps too.** `AgentProvider.critique()` is the LLM-as-judge seam:
 
-- **Real path** — the judge is a model call constrained by a JSON schema
+- **Real path:** the judge is a model call constrained by a JSON schema
   (structured outputs), so the score comes back as a `number` rather than being
   scraped out of prose. That is the difference between a judge you can branch
   on and one that occasionally answers "I'd rate this an 8/10!".
-- **Mock path** — a deterministic length heuristic. Crude on purpose: a
+- **Mock path:** a deterministic length heuristic. Crude on purpose: a
   first-pass finding lands below the bar and a revised one lands above it, so
   the reflection loop runs identically on every test run and the suite stays
   hermetic.
@@ -178,4 +180,4 @@ tests/            end-to-end tests on the in-process test server
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
