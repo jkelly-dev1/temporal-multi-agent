@@ -3,7 +3,7 @@ temporalio>=1.30,<2
 
 # Dev / test
 pytest>=8
-pytest-asyncio>=0.24
+pytest-asyncio>=1.4.0
 
 # Optional: real-LLM path (set AGENT_PROVIDER=anthropic and ANTHROPIC_API_KEY).
 # The demo runs fully offline with the built-in MockProvider without this.
