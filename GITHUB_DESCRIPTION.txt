@@ -1,0 +1,1 @@
+Production-shaped multi-agent platform on Temporal: a main orchestrator plans a task, fans out to specialized agents that run concurrently and self-critique, then reviews and synthesizes, all as durable, replay-safe workflows with human-in-the-loop plan approval. Provider-agnostic (mock/Anthropic), runs fully offline; Python.
