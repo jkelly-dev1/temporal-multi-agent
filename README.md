@@ -190,6 +190,10 @@ checks on the tests that matter, and behavior verified before publishing:
   egress policy and measures what a right-to-erasure operation misses.
 - [llm-eval-gate](https://github.com/jkelly-dev1/llm-eval-gate) measures the
   judges rather than trusting them.
+- [federated-retrieval-router](https://github.com/jkelly-dev1/federated-retrieval-router)
+  fans one query out across four stores concurrently and reports the cost of
+  being right beside the correctness, because a routing score without its
+  backends-per-query number is not a result.
 - [least-privilege-agent](https://github.com/jkelly-dev1/least-privilege-agent)
 - [citation-abstention-rag](https://github.com/jkelly-dev1/citation-abstention-rag)
 - [agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate)
