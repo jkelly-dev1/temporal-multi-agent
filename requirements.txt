@@ -1,5 +1,5 @@
 # Core: Temporal Python SDK (workflows, activities, worker, in-process test server)
-temporalio>=1.30,<2
+temporalio>=1.31.0,<2
 
 # Dev / test
 pytest>=8
