@@ -194,6 +194,10 @@ checks on the tests that matter, and behavior verified before publishing:
   fans one query out across four stores concurrently and reports the cost of
   being right beside the correctness, because a routing score without its
   backends-per-query number is not a result.
+- [hardened-mcp-server](https://github.com/jkelly-dev1/hardened-mcp-server)
+  pins MCP tool definitions and measures how long a rug pull goes unnoticed,
+  which turns out to be exactly the cache lifetime the server itself asked
+  for. Its clock is injected for the same reason this repo's is.
 - [least-privilege-agent](https://github.com/jkelly-dev1/least-privilege-agent)
 - [citation-abstention-rag](https://github.com/jkelly-dev1/citation-abstention-rag)
 - [agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate)
