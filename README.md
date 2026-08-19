@@ -215,6 +215,7 @@ checks on the tests that matter, and behavior verified before publishing:
 - [llm-observability-stack](https://github.com/jkelly-dev1/llm-observability-stack)
 - [ai-compliance-checker](https://github.com/jkelly-dev1/ai-compliance-checker)
 - [agent-sandbox-escape](https://github.com/jkelly-dev1/agent-sandbox-escape)
+- [parser-eval](https://github.com/jkelly-dev1/parser-eval)
 
 ## License
 
