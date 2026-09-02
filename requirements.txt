@@ -1,5 +1,5 @@
 # Core: Temporal Python SDK (workflows, activities, worker, in-process test server)
-temporalio>=1.31.0,<2
+temporalio>=1.32.0,<2
 
 # Dev / test. pytest-asyncio 1.x needs an explicit mode; pytest.ini sets
 # asyncio_mode = auto, which is what the async tests here rely on.
