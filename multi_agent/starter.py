@@ -19,9 +19,11 @@ from .workflows import OrchestratorWorkflow
 
 
 async def main() -> None:
-    topic = " ".join(sys.argv[1:]).strip() or (
-        "designing a reliable multi-agent orchestration platform"
-    )
+    # Same default as run_demo.py, and for the same reason: the mock judge
+    # scores a finding by length, so a longer default silently scores above
+    # CONFIDENCE_BAR and the reflection loop never runs.
+    # tests/test_end_to_end.py pins the default of both entry points.
+    topic = " ".join(sys.argv[1:]).strip() or "multi-agent orchestration"
     client = await Client.connect("localhost:7233")
     wf_id = f"research-{uuid.uuid4().hex[:8]}"
 

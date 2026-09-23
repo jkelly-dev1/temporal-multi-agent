@@ -152,13 +152,12 @@ _PROVIDER = None
 def get_provider() -> AgentProvider:
     """Process-wide singleton chosen by the AGENT_PROVIDER env var (default: mock).
 
-    Selection requires both the name and its credential. Asking for anthropic
-    without ANTHROPIC_API_KEY used to construct AnthropicProvider anyway: the
-    SDK defers auth to request time, so the failure surfaced later as five
-    retried activity failures and a dead workflow rather than as "you did not
-    set a key". Anything short of a matching pair falls back to the offline
-    mock, which is also what keeps a stray AGENT_PROVIDER in a developer's
-    shell from turning `pytest` into live billed calls.
+    Selection requires both the name and its credential. The SDK defers auth
+    to request time, so constructing AnthropicProvider without a key would
+    surface later as five retried activity failures and a dead workflow rather
+    than as "you did not set a key". Anything short of a matching pair falls
+    back to the offline mock, which is also what keeps a stray AGENT_PROVIDER
+    in a developer's shell from turning `pytest` into live billed calls.
     """
     global _PROVIDER
     if _PROVIDER is None:

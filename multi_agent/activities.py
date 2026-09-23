@@ -56,13 +56,21 @@ async def plan_subtasks(req: ResearchRequest) -> List[Subtask]:
     return subs
 
 
+# How often the activity beats while it is blocked on the model. Named rather
+# than inlined so a test can shorten it: the periodic beat only happens DURING
+# the model call, and the offline mock returns instantly, so at the real
+# cadence nothing observable distinguishes "beats while waiting" from "does
+# not". See tests/test_durability.py.
+HEARTBEAT_INTERVAL_SECONDS = 2.0
+
+
 async def _heartbeat_until_cancelled(interval: float, detail: str) -> None:
     """Heartbeat on a fixed cadence until canceled.
 
     The model call below is a single long await. Without this, the activity
     would go silent for its whole duration and Temporal would (correctly) treat
     it as dead once heartbeat_timeout elapsed, so a slow-but-healthy LLM call
-    looked exactly like a hung worker.
+    would look exactly like a hung worker.
     """
     while True:
         await asyncio.sleep(interval)
@@ -95,7 +103,10 @@ async def research_subtask(inp: ResearchInput) -> AgentResult:
         prompt += f"\n\nReviewer feedback to address: {inp.feedback}"
 
     beat = asyncio.create_task(
-        _heartbeat_until_cancelled(2.0, f"{st.angle}: awaiting model (attempt {inp.attempt})")
+        _heartbeat_until_cancelled(
+            HEARTBEAT_INTERVAL_SECONDS,
+            f"{st.angle}: awaiting model (attempt {inp.attempt})",
+        )
     )
     try:
         finding = await get_provider().complete(system, prompt)

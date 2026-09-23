@@ -64,11 +64,9 @@ async def _spinner(handle, stop: asyncio.Event) -> None:
 async def main() -> None:
     # The default topic has to demonstrate the self-critique loop, and that is
     # not automatic. The mock judge scores a finding by its length, and the
-    # mock's finding length grows with the topic, so a LONGER default silently
-    # scores above CONFIDENCE_BAR and the reflection loop never runs. Its
-    # previous default was 55 characters and scored 0.727 against a bar of
-    # 0.70: the documented one-command demo of the flagship feature did not
-    # exercise the flagship feature. Tests/test_end_to_end.py pins this.
+    # mock's finding length grows with the topic, so a longer default silently
+    # scores above CONFIDENCE_BAR and the reflection loop never runs.
+    # tests/test_end_to_end.py pins this.
     topic = " ".join(sys.argv[1:]).strip() or "multi-agent orchestration"
     # start_local() downloads and runs a real Temporal dev server in-process.
     async with await WorkflowEnvironment.start_local() as env:

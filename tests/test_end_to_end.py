@@ -7,6 +7,7 @@ Temporal test environment: no external server, no API key, fully deterministic.
 import asyncio
 import os
 import pathlib
+import re
 import uuid
 
 import pytest
@@ -18,10 +19,34 @@ from multi_agent.shared import FinalReport, ResearchRequest
 from multi_agent.worker import ACTIVITIES, WORKFLOWS
 from multi_agent.workflows import OrchestratorWorkflow
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# Both documented ways in: Option A in the README is run_demo.py, Option B is
+# `python -m multi_agent.starter`. They each carry their own default topic, and
+# a check that reads one of them says nothing about the other.
+_ENTRY_POINTS = ("run_demo.py", "multi_agent/starter.py")
+
+# Anchored on the assignment, not on a bare `or "..."`, which cannot see a
+# default that sits on a continuation line. The optional paren keeps it
+# working if either default is wrapped in parentheses.
+_DEFAULT_TOPIC = re.compile(r'sys\.argv\[1:\]\)\.strip\(\)\s*or\s*\(?\s*"([^"]+)"')
+
+
+# A bug in workflow code raises inside a workflow task, and Temporal retries a
+# failed workflow task forever, so that a deployed fix can rescue workflows
+# already in flight. In a test suite that retry loop shows up as a hang:
+# stubbing `research_subtask` to return the wrong type makes every end-to-end
+# test sit there until the runner's wall clock kills it, with no assertion and
+# no red line. So the test workers convert any such exception into a workflow
+# failure and the test fails in seconds. Production keeps the default, which
+# is the behavior wanted in a deployment.
+_FAIL_FAST = [Exception]
+
 
 async def _run(env, req: ResearchRequest, *, approve: bool = False) -> FinalReport:
     async with Worker(
-        env.client, task_queue=TASK_QUEUE, workflows=WORKFLOWS, activities=ACTIVITIES
+        env.client, task_queue=TASK_QUEUE, workflows=WORKFLOWS,
+        activities=ACTIVITIES, workflow_failure_exception_types=_FAIL_FAST
     ):
         handle = await env.client.start_workflow(
             OrchestratorWorkflow.run,
@@ -77,21 +102,21 @@ async def test_human_in_the_loop_signal_gates_execution():
 
 @pytest.mark.asyncio
 async def test_the_approval_gate_actually_blocks_before_the_signal():
-    """The gate must block, and the old test could not tell.
+    """The gate must block, which a report coming back cannot show.
 
     test_human_in_the_loop_signal_gates_execution sends the signal and asserts
-    a report comes back. Replacing the whole `approve_plan` handler body with
-    `pass`, discarding the human's decision entirely, left every test in this
-    file passing, because the workflow auto-approves after its timeout and
-    simply took ten minutes instead of six seconds.
+    a report comes back. A handler that discarded the signal would pass that
+    test too, because the workflow auto-approves after its timeout and would
+    simply take minutes instead of seconds.
 
-    So this asserts the two things that distinguish a gate from a delay: it is
-    parked at `awaiting-approval` and has started no agent BEFORE the signal,
-    and it proceeds AFTER it.
+    This test asserts the two things that distinguish a gate from a delay:
+    it is parked at `awaiting-approval` and has started no agent before the
+    signal, and it proceeds after it.
     """
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(env.client, task_queue=TASK_QUEUE,
-                          workflows=WORKFLOWS, activities=ACTIVITIES):
+                          workflows=WORKFLOWS, activities=ACTIVITIES,
+                          workflow_failure_exception_types=_FAIL_FAST):
             handle = await env.client.start_workflow(
                 OrchestratorWorkflow.run,
                 ResearchRequest("multi-agent orchestration", max_subtasks=2,
@@ -122,7 +147,7 @@ async def test_the_approval_gate_actually_blocks_before_the_signal():
 
     assert len(report.sections) == 2
     assert report.summary.strip()
-    # And it proceeded because of the signal, not because the wait expired.
+    # It proceeded because of the signal, not because the wait expired.
     # Without this the gate can discard the human's decision entirely and
     # still produce a normal report once the timeout fires, which is a
     # delay, not a gate, and reads identically in the output.
@@ -132,13 +157,12 @@ async def test_the_approval_gate_actually_blocks_before_the_signal():
 
 @pytest.mark.asyncio
 async def test_the_agents_actually_run_concurrently():
-    """"Fans out CONCURRENTLY" was described and never asserted.
+    """The fan-out is concurrent, measured as overlap.
 
-    Replacing the `asyncio.gather` fan-out with a sequential `for` loop left
-    every test green, because they all assert the COUNT of sections and a
-    sequential loop produces the same count. Concurrency is a claim about
-    OVERLAP, so it is measured as overlap: the agents' activity spans must
-    intersect.
+    A sequential `for` loop in place of the `asyncio.gather` fan-out produces
+    the same number of sections, so a count cannot tell the two apart.
+    Concurrency is a claim about overlap, so it is measured as overlap: the
+    agents' activity spans must intersect.
     """
     async with await WorkflowEnvironment.start_time_skipping() as env:
         report = await _run(env, ResearchRequest("multi-agent orchestration",
@@ -159,38 +183,104 @@ async def test_the_agents_actually_run_concurrently():
 
 
 def test_the_documented_default_topic_demonstrates_self_critique():
-    """The one-command demo must demonstrate the feature it is for.
+    """Both documented one-command demos must demonstrate the feature.
 
     The mock judge scores a finding by length and the mock's finding grows
-    with the topic, so a longer default topic scores ABOVE the bar and the
-    reflection loop never runs. The previous default was 55 characters and
-    scored 0.727 against a bar of 0.70: `python run_demo.py` with no
-    argument, the README's headline command, exercised none of the
-    self-critique the repository is built around, and nothing said so.
+    with the topic, so a longer default topic scores above the bar and the
+    reflection loop never runs.
+
+    The judge is called here, not re-implemented, so a change to its formula
+    is a change to what this test measures. The question is built by the real
+    planner for the same reason: a hand-written question would be a second
+    copy of something the application already decides. Both entry points are
+    read, because each carries its own default.
     """
-    import re
+    from multi_agent.activities import plan_subtasks
     from multi_agent.providers import MockProvider
     from multi_agent.shared import CONFIDENCE_BAR
 
-    src = (pathlib.Path(__file__).resolve().parents[1] / "run_demo.py").read_text()
-    match = re.search(r'or "([^"]+)"', src)
-    assert match, "could not find run_demo.py's default topic"
-    topic = match.group(1)
+    for entry in _ENTRY_POINTS:
+        src = (_REPO_ROOT / entry).read_text()
+        match = _DEFAULT_TOPIC.search(src)
+        assert match, f"could not find {entry}'s default topic"
+        topic = match.group(1)
 
-    finding = asyncio.run(MockProvider().complete("sys", f"Research: {topic}"))
-    score = min(len(finding) / 300, 1.0)
-    assert score < CONFIDENCE_BAR, (
-        f"the default topic {topic!r} scores {score:.3f} against a bar of "
-        f"{CONFIDENCE_BAR}, so `python run_demo.py` shows no self-critique")
+        # run_demo.py and starter.py both request max_subtasks=4.
+        subtasks = asyncio.run(
+            plan_subtasks(ResearchRequest(topic=topic, max_subtasks=4))
+        )
+        assert subtasks, f"{entry}: the planner produced no subtasks"
+        for st in subtasks:
+            finding = asyncio.run(MockProvider().complete("sys", st.question))
+            critique = asyncio.run(MockProvider().critique(st.angle, finding))
+            assert critique.score < CONFIDENCE_BAR, (
+                f"{entry}: the default topic {topic!r} scores "
+                f"{critique.score} on {st.angle!r} against a bar of "
+                f"{CONFIDENCE_BAR}, so running it with no argument shows no "
+                "self-critique"
+            )
+
+
+def test_the_readme_test_count_is_the_one_the_suite_collects():
+    """A hand-typed count in a README drifts the moment a test is added.
+
+    The count is not recomputed here, since that would be a second copy of
+    pytest's collection. A collect-only child run is asked, and its answer is
+    compared to the figure the README prints. `--collect-only` runs no test, so there is no
+    recursion.
+    """
+    import subprocess
+    import sys
+
+    readme = (_REPO_ROOT / "README.md").read_text()
+    stated = re.search(r"pytest -q\s+#\s*(\d+) tests", readme)
+    assert stated, (
+        "README.md no longer prints a test count in the form this check "
+        "reads, so the figure is unchecked rather than agreed with")
+
+    run = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "--collect-only"],
+        cwd=_REPO_ROOT, capture_output=True, text=True, timeout=300)
+    collected = re.search(r"(\d+) tests? collected", run.stdout)
+    assert collected, (
+        f"the collect-only child printed no count, so nothing was compared. "
+        f"exit={run.returncode}\n{run.stdout[-500:]}")
+
+    assert int(collected.group(1)) == int(stated.group(1)), (
+        f"README.md says {stated.group(1)} tests; pytest collects "
+        f"{collected.group(1)}")
+
+
+def test_the_suite_itself_cannot_reach_a_real_model():
+    """The floor tests/conftest.py puts under the whole suite.
+
+    `get_provider()` selects the real Anthropic path when AGENT_PROVIDER and a
+    credential are both present, and the README's "use a real LLM" recipe
+    tells the reader to export exactly that pair. A check on
+    `report.provider == "mock"` after a run would be a report on money already
+    spent, not a guard.
+
+    This asserts the guard itself instead of its consequence, so deleting the
+    autouse fixture fails here regardless of what the developer's shell holds.
+    """
+    from multi_agent.providers import get_provider
+
+    assert os.environ.get("AGENT_PROVIDER") == "mock", (
+        "the suite is not pinned to the offline provider; a stray "
+        "AGENT_PROVIDER can reach a real model from inside these tests")
+    assert "ANTHROPIC_API_KEY" not in os.environ, (
+        "a credential is visible to the suite")
+    assert get_provider().name == "mock", (
+        "get_provider() did not return the mock under the pinned environment")
 
 
 class TestProviderSelection:
-    """The seam, which no test touched.
+    """The provider seam: a name and its credential select the real path.
 
-    `AGENT_PROVIDER=anthropic` with no key constructed AnthropicProvider
-    anyway; the SDK defers auth to request time, so the missing key surfaced
-    later as five retried activity failures and a dead workflow. It also meant
-    a stray AGENT_PROVIDER in a shell turned `pytest` into live billed calls.
+    The SDK defers auth to request time, so a real provider built without a
+    key would surface later as five retried activity failures and a dead
+    workflow. A stray AGENT_PROVIDER in a shell must not turn `pytest` into
+    live billed calls either.
     """
 
     @staticmethod
@@ -223,18 +313,18 @@ class TestProviderSelection:
         """The only case here that needs the optional dependency.
 
         AnthropicProvider.__init__ imports `anthropic` lazily, and
-        requirements.txt leaves that package commented out on purpose so the
-        demo runs offline. So this one case skips where it is absent, which is
-        CI, and is the point of installing only what requirements.txt lists.
+        requirements.txt leaves that package commented out so the demo runs
+        offline. So this one case skips where it is absent, which is CI, and is
+        the point of installing only what requirements.txt lists.
 
-        The four negative cases above do NOT skip, and must not: they are the
-        ones that keep a stray AGENT_PROVIDER from turning a test run into
-        live billed calls, and they never construct the real provider.
+        The four negative cases in this class do not skip, and must not: they
+        are the ones that keep a stray AGENT_PROVIDER from turning a test run
+        into live billed calls, and they never construct the real provider.
         """
         pytest.importorskip(
             "anthropic",
             reason="the optional real-model dependency is not installed; the "
-                   "fallback cases above still run")
+                   "fallback cases still run")
         assert self._pick({"AGENT_PROVIDER": "anthropic",
                            "ANTHROPIC_API_KEY": "sk-x"}) == "AnthropicProvider"
 

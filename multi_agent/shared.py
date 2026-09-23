@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 # Findings scoring at or above this are accepted; below it the agent gets one
-# feedback-guided rewrite. Defined here because the workflow (which decides
-# whether to refine), the activities, and the providers (which score) must all
-# agree; it was previously duplicated in all three.
+# feedback-guided rewrite. Defined once, here, because the workflow (which
+# decides whether to refine), the activities, and the providers (which score)
+# must all agree on it.
 CONFIDENCE_BAR = 0.70
 
 
@@ -113,8 +113,8 @@ class FinalReport:
     # the signal; "auto-approved-on-timeout" means nobody did and the wait
     # expired; "not-required" means the request did not ask for a gate.
     #
-    # This exists because the three are otherwise indistinguishable in the
-    # output, and that is what let the gate be a delay rather than a gate:
-    # discarding the human's decision entirely still produced a normal report,
-    # just five minutes later, and no test could tell.
+    # Without this field the three are indistinguishable in the output: a gate
+    # that discarded the human's decision entirely would still produce a
+    # normal report, five minutes later, and nothing could tell a gate from a
+    # delay.
     approval: str = "not-required"

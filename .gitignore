@@ -18,5 +18,5 @@ htmlcov/
 .idea/
 .vscode/
 
-# Local-only job-search copy; not for the public repo.
+# Local notes, not part of the repository.
 PROJECT_BLURB.md

@@ -104,7 +104,7 @@ python -m multi_agent.starter "your topic here"   # terminal 3
 Tests (hermetic, no API key or Docker needed):
 
 ```bash
-pytest -q          # 14 tests, ~8s warm -- runs a real Temporal dev server
+pytest -q          # 18 tests, ~8s warm -- runs a real Temporal dev server
 ```
 
 ## Claims backed by tests
@@ -117,21 +117,27 @@ backed by a test that fails if the property breaks.
 | The pipeline plans, fans out, and synthesizes | `tests/test_end_to_end.py::test_pipeline_completes_and_fans_out` | 4 subtasks -> 4 concurrent child workflows -> one report |
 | Agents self-critique and refine | `tests/test_end_to_end.py::test_self_critique_refines_weak_sections` | weak first drafts end at 2 attempts, above the 0.70 bar |
 | Human-in-the-loop gates execution | `tests/test_end_to_end.py::test_the_approval_gate_actually_blocks_before_the_signal` (mutation-checked: make the `approve_plan` handler a no-op and it fails) | the run parks at `awaiting-approval` with no agent started, and proceeds on the signal. **It auto-approves if no signal arrives within five minutes**, so it is a gate with a deadline rather than an indefinite block; `FinalReport.approval` records which of the two happened |
-| The agents actually run concurrently, measured as overlap rather than counted | `tests/test_end_to_end.py::test_the_agents_actually_run_concurrently` (mutation-checked: replace the `asyncio.gather` fan-out with a sequential loop and it fails) |
-| Provider selection requires BOTH the name and its credential, so a stray `AGENT_PROVIDER` cannot turn a test run into live billed calls | `tests/test_end_to_end.py::TestProviderSelection::test_the_name_without_its_credential_falls_back_to_the_mock`, `::TestProviderSelection::test_both_together_select_the_real_provider`, `::TestProviderSelection::test_an_unknown_provider_name_falls_back_rather_than_reaching_out` |
-| `python run_demo.py` with no argument actually demonstrates the self-critique loop | `tests/test_end_to_end.py::test_the_documented_default_topic_demonstrates_self_critique` |
-| **Work survives losing the worker** | `tests/test_durability.py::test_survives_worker_crash` | worker is killed mid-orchestration; a *new* worker rebuilds the in-flight run from history and finishes it |
+| The agents actually run concurrently, measured as overlap rather than counted | `tests/test_end_to_end.py::test_the_agents_actually_run_concurrently` (mutation-checked: replace the `asyncio.gather` fan-out with a sequential loop and it fails) | each section records `started_at`/`finished_at` from `workflow.now()`; the test asserts the spans overlap, which a sequential fan-out cannot do |
+| Provider selection requires BOTH the name and its credential, so a stray `AGENT_PROVIDER` cannot turn a test run into live billed calls | `tests/test_end_to_end.py::TestProviderSelection::test_the_name_without_its_credential_falls_back_to_the_mock`, `::TestProviderSelection::test_both_together_select_the_real_provider`, `::TestProviderSelection::test_an_unknown_provider_name_falls_back_rather_than_reaching_out` | asking for `anthropic` without a key, or offering a key without asking, or naming an unknown provider, all return `MockProvider` |
+| Both entry points with no argument actually demonstrate the self-critique loop | `tests/test_end_to_end.py::test_the_documented_default_topic_demonstrates_self_critique` (mutation-checked: change the judge's divisor to 265.0, or restore either entry point's old 55-character default, and it fails) | the default topic of `run_demo.py` **and** of `multi_agent.starter` is put through the real planner and scored by the real `MockProvider.critique`, and must land below the bar |
+| **Work survives losing the worker** | `tests/test_durability.py::test_survives_worker_crash` | the worker is torn down mid-orchestration -- a clean `Worker` shutdown, not a `SIGKILL` -- while the run is parked at the approval gate; a *new* worker then rebuilds the in-flight run from history and finishes it |
 | **Workflow code is replay-safe** | `tests/test_durability.py::test_workflow_history_replays` | recorded history is replayed against current code via Temporal's `Replayer`; non-determinism raises |
-| **Retries are load-bearing** | `tests/test_durability.py::test_activity_retries_on_failure` (mutation-checked) | an activity fails its first two attempts per subtask; the `RetryPolicy` carries it through and the workflow never sees an error |
+| **Retries are load-bearing, and retried IN PLACE** | `tests/test_durability.py::test_activity_retries_on_failure` (mutation-checked: `maximum_attempts=1` on the shared policy, and separately on the activity alone, both fail it) | an activity fails its first two attempts per subtask; the assertion is on Temporal's own `activity.info().attempt`, which reaches 3. A whole-agent restart would produce the same three invocations at attempt 1 each -- and in that case the workflow *would* have seen the error |
+| `DEFAULT_RETRY` really is on every activity and child workflow | `tests/test_durability.py::test_every_activity_call_binds_the_shared_retry_policy` (mutation-checked: drop one binding and it fails) | asserted against the source, because Temporal's implicit default retries too, so dropping a binding changes nothing a behavioral test can observe |
+| Activities heartbeat through their steps **and** while blocked on the model | `tests/test_durability.py::test_the_research_activity_heartbeats_through_its_steps_and_its_wait` (mutation-checked: delete either heartbeat site and it fails) | run under `ActivityEnvironment` with a deliberately slow provider, since the offline mock returns instantly and the periodic beat would never fire |
+| The test suite cannot reach a real model, whatever the shell holds | `tests/test_end_to_end.py::test_the_suite_itself_cannot_reach_a_real_model` (mutation-checked: drop the autouse fixture and it fails) | `tests/conftest.py` forces `AGENT_PROVIDER=mock` and clears every Anthropic credential for every test. Verified by running the whole suite under the exact `export` recipe below, with the API base URL pointed at a closed port: every test passed, so no request was made |
 
 Two details are easy to get wrong:
 
-- After the worker dies the workflow is **not queryable**; queries are answered
-  by a worker replaying history, so with no worker there is nobody to answer.
-  Signals are still accepted, because the service buffers them. Durable state and
-  live observability are different guarantees.
-- The retry test was checked against a mutation: setting `maximum_attempts=1`
-  makes it fail. A retry test that passes with retries disabled proves nothing.
+- After the worker is gone the workflow is **not queryable**; queries are
+  answered by a worker replaying history, so with no worker there is nobody to
+  answer. Signals are still accepted, because the service buffers them. Durable
+  state and live observability are different guarantees.
+- "Retried" and "restarted" look identical from outside. Counting how many times
+  a flaky activity ran cannot tell the two apart, because both produce the same
+  count, and if the agent workflow was restarted instead of the activity being
+  retried, the workflow *did* see the error. The assertion is on
+  `activity.info().attempt`, which a restart resets and a retry increments.
 
 ## Use a real LLM (optional)
 
@@ -201,17 +207,19 @@ checks on the tests that matter, and behavior verified before publishing:
 - [hardened-mcp-server](https://github.com/jkelly-dev1/hardened-mcp-server)
   pins MCP tool definitions and measures how long a rug pull goes unnoticed,
   which turns out to be exactly the cache lifetime the server itself asked
-  for. Its clock is injected for the same reason this repo's is.
+  for.
 - [vlm-extraction-integrity](https://github.com/jkelly-dev1/vlm-extraction-integrity)
-  audits its own instrument the way this repo audits its clock: the page five
-  paid runs had been measured on drew two fields on one baseline, so 13 of
-  what were published as validation catches were the harness's own misreads.
-- [airgapped-ai-bundle](https://github.com/jkelly-dev1/airgapped-ai-bundle) is
-  this repo's staleness question with the network removed. Simulating an enclave
-  over two years, 62% of the days on which everything was healthy produce a
-  status artifact BYTE-IDENTICAL to one from a day something was months out of
-  date. Six of eight components cannot report their own input age, and two of
-  the silent ones are the revocation list and the CVE feed.
+  measures which validation checks actually catch a wrong field value in
+  document extraction. On real degraded pages, the pixel-grounding checks
+  caught 2 of 19 errors, while a plain lookup against the parts master caught
+  17 of 19.
+- [airgapped-ai-bundle](https://github.com/jkelly-dev1/airgapped-ai-bundle)
+  asks whether anything reports stale state inside an enclave with no
+  network. Simulated over two years, 62% of the days on which everything was
+  healthy produce a status artifact byte-identical to one from a day when
+  something was past its staleness budget. Six of eight components cannot
+  report their own input age, and two of the silent ones are the revocation
+  list and the CVE feed.
 - [least-privilege-agent](https://github.com/jkelly-dev1/least-privilege-agent)
 - [citation-abstention-rag](https://github.com/jkelly-dev1/citation-abstention-rag)
 - [agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate)

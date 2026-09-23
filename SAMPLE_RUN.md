@@ -10,7 +10,7 @@ self-critique behavior can be inspected without an API key.
   LLM-as-judge critiques (one per pass), 1 synthesis
 
 The captured block below is not plain ASCII, though the rest of the repository
-is: the model used en dashes and a multiplication sign in its own prose. They
+is: the model used em dashes and a multiplication sign in its own prose. They
 are left as it wrote them.
 
 > A real captured run, reproduced unedited, including the one section the

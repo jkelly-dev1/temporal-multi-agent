@@ -81,7 +81,7 @@ class ResearchAgentWorkflow:
                 activities.critique_finding,
                 result,
                 # The critic is an LLM-as-judge on the real path, so this needs
-                # model-call sizing too, not the 15s that suited the mock.
+                # model-call sizing too.
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=DEFAULT_RETRY,
             )
