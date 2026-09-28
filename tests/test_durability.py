@@ -15,7 +15,7 @@ These show it survives things going wrong:
   5. test_the_research_activity_heart.. the activity stays observable while
                                         it is blocked on the model
 
-The first three run against a real in-process Temporal dev server; no API key,
+The first three run against a real Temporal dev server the SDK starts; no API key,
 no Docker. The last two need neither a server nor a workflow: they exercise the
 activity and the workflow module directly, which is the only way to reach the
 two properties at all.
@@ -259,7 +259,7 @@ def test_every_activity_call_binds_the_shared_retry_policy():
     structurally, against the source, which is where the claim lives.
 
     It is a claim about ALL of them, so the check has to see all of them: if
-    the walk finds no calls at all it fails rather than passing on an empty
+    the walk finds no calls at all it fails instead of passing on an empty
     set, which would report "every call is fine" about a file it never read.
 
     The name each call passes is RESOLVED rather than spelled out. Asserting

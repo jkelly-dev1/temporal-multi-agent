@@ -1,7 +1,7 @@
 """Pluggable "agent brain" behind the activities.
 
-The demo runs fully offline by default with a deterministic MockProvider, so the
-whole multi-agent pipeline is hermetic and needs no API key. Set
+By default the demo runs on a deterministic MockProvider, so the whole
+multi-agent pipeline needs no model and no API key. Set
 AGENT_PROVIDER=anthropic (and ANTHROPIC_API_KEY) to route the generative steps to
 a real Claude model instead; the orchestration code does not change.
 
@@ -26,6 +26,11 @@ class AgentProvider:
         raise NotImplementedError
 
 
+#: What research_subtask appends before the reviewer's note. The mock looks for
+#: this, not for the word "feedback", which a topic can contain on its own.
+FEEDBACK_MARKER = "Reviewer feedback to address:"
+
+
 class MockProvider(AgentProvider):
     """Deterministic, offline stand-in for an LLM.
 
@@ -44,7 +49,7 @@ class MockProvider(AgentProvider):
         question = prompt.strip().splitlines()[0]
         focus = question.split(":", 1)[-1].strip().rstrip("?")[:110]
         out = f"{base} On {focus}, prioritize those three."
-        if "feedback" in prompt.lower():
+        if FEEDBACK_MARKER in prompt:
             out += (
                 " Addressing the reviewer's note, this revision names concrete "
                 "trade-offs and failure modes and recommends a sensible default "
@@ -55,9 +60,9 @@ class MockProvider(AgentProvider):
     async def critique(self, angle: str, finding: str) -> Critique:
         """Deterministic stand-in for an LLM judge: score on length.
 
-        Crude on purpose. A first-pass mock finding lands below the bar and a
+        Crude, by choice. A first-pass mock finding lands below the bar and a
         revised one lands above it, so the reflection loop is exercised
-        identically on every run, which is what makes the tests hermetic.
+        identically on every run, so the tests never depend on a model.
         """
         score = round(min(len(finding) / 300.0, 1.0), 3)
         if score >= CONFIDENCE_BAR:

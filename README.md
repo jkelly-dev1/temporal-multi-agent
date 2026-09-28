@@ -8,10 +8,12 @@ coordinates a fleet of specialized agents that run concurrently, each agent
 self-critiques and refines its own work, and the orchestrator reviews and
 synthesizes the result, all as durable, replay-safe workflows.
 
-It runs fully offline with a deterministic mock "brain," so `python run_demo.py`
-works with no API key, no Docker, and no external Temporal server. Point it at a
-real Claude model by setting two env vars (see below); the orchestration code
-doesn't change.
+It runs with a deterministic mock "brain," so `python run_demo.py` works with
+no API key, no Docker, and no Temporal server of your own. The first run
+downloads the Temporal dev-server binary (the SDK's `start_local()` fetches it
+into the system temp directory and runs it as a subprocess), so it needs
+network once; after that it runs offline. Point it at a real Claude model by
+setting two env vars (see below); the orchestration code doesn't change.
 
 ## Why Temporal
 
@@ -47,8 +49,10 @@ ResearchRequest ----->|      OrchestratorWorkflow      |   (the "main agent")
 - **Activities** (`activities.py`) do all the side-effecting work (the LLM/tool
   calls). Temporal retries them independently with backoff and records results
   in history.
-- **Child workflows** isolate each specialized agent: its own durable history,
-  its own retries, failing without taking down its siblings.
+- **Child workflows** isolate each specialized agent: its own durable history
+  and its own retries, so a retry of one agent does not disturb the others. An
+  agent that fails for good fails the orchestration, and Temporal then
+  terminates the siblings still running (the default parent-close policy).
 
 ## Temporal concepts demonstrated
 
@@ -63,7 +67,7 @@ ResearchRequest ----->|      OrchestratorWorkflow      |   (the "main agent")
 | Activity heartbeats / timeouts | `research_subtask` |
 | Human-in-the-loop | `approve_plan` **signal** + `wait_condition` |
 | Live observability | `get_stage` / `get_plan` **queries** |
-| Deterministic, hermetic tests | `tests/` via the in-process test server |
+| Deterministic tests with no API key | `tests/` on local Temporal servers the SDK starts |
 
 ## How it maps to an agent-platform role
 
@@ -87,7 +91,8 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Option A: one command, zero setup (in-process dev server, no Docker/CLI):
+Option A: one command, no Docker and no server to install (the SDK downloads
+and starts a local dev server):
 
 ```bash
 python run_demo.py "designing a fleet-telemetry ingestion pipeline"
@@ -101,10 +106,11 @@ python -m multi_agent.worker       # terminal 2
 python -m multi_agent.starter "your topic here"   # terminal 3
 ```
 
-Tests (hermetic, no API key or Docker needed):
+Tests (no API key or Docker needed; on first use the SDK downloads two server
+binaries, the dev server and the time-skipping test server):
 
 ```bash
-pytest -q          # 18 tests, ~8s warm -- runs a real Temporal dev server
+pytest -q          # 19 tests, ~8s warm -- runs real Temporal servers
 ```
 
 ## Claims backed by tests
@@ -125,7 +131,7 @@ backed by a test that fails if the property breaks.
 | **Retries are load-bearing, and retried IN PLACE** | `tests/test_durability.py::test_activity_retries_on_failure` (mutation-checked: `maximum_attempts=1` on the shared policy, and separately on the activity alone, both fail it) | an activity fails its first two attempts per subtask; the assertion is on Temporal's own `activity.info().attempt`, which reaches 3. A whole-agent restart would produce the same three invocations at attempt 1 each -- and in that case the workflow *would* have seen the error |
 | `DEFAULT_RETRY` really is on every activity and child workflow | `tests/test_durability.py::test_every_activity_call_binds_the_shared_retry_policy` (mutation-checked: drop one binding and it fails) | asserted against the source, because Temporal's implicit default retries too, so dropping a binding changes nothing a behavioral test can observe |
 | Activities heartbeat through their steps **and** while blocked on the model | `tests/test_durability.py::test_the_research_activity_heartbeats_through_its_steps_and_its_wait` (mutation-checked: delete either heartbeat site and it fails) | run under `ActivityEnvironment` with a deliberately slow provider, since the offline mock returns instantly and the periodic beat would never fire |
-| The test suite cannot reach a real model, whatever the shell holds | `tests/test_end_to_end.py::test_the_suite_itself_cannot_reach_a_real_model` (mutation-checked: drop the autouse fixture and it fails) | `tests/conftest.py` forces `AGENT_PROVIDER=mock` and clears every Anthropic credential for every test. Verified by running the whole suite under the exact `export` recipe below, with the API base URL pointed at a closed port: every test passed, so no request was made |
+| The test suite cannot reach a real model, whatever the shell holds | `tests/test_end_to_end.py::test_the_suite_itself_cannot_reach_a_real_model` (mutation-checked: drop the autouse fixture and it fails) | `tests/conftest.py` forces `AGENT_PROVIDER=mock` and clears every `ANTHROPIC_*` environment variable for every test. Verified by running the whole suite under the exact `export` recipe below, with the API base URL pointed at a closed port: every test passed, so no request was made |
 
 Two details are easy to get wrong:
 
@@ -155,13 +161,13 @@ and durability are identical.
 The critic swaps too. `AgentProvider.critique()` is the LLM-as-judge seam:
 
 - **Real path:** the judge is a model call constrained by a JSON schema
-  (structured outputs), so the score comes back as a `number` rather than being
+  (structured outputs), so the score comes back as a `number` instead of being
   scraped out of prose. That is the difference between a judge you can branch
   on and one that occasionally answers "I'd rate this an 8/10!".
 - **Mock path:** a deterministic length heuristic. Crude: a
   first-pass finding lands below the bar and a revised one lands above it, so
-  the reflection loop runs identically on every test run and the suite stays
-  hermetic.
+  the reflection loop runs identically on every test run and the suite never
+  depends on a model.
 
 Both score against the single `CONFIDENCE_BAR` in `shared.py`, which the
 workflow also reads when deciding whether to refine.
@@ -170,7 +176,7 @@ workflow also reads when deciding whether to refine.
 self-critique behavior can be inspected without an API key. In that run the
 judge sent three of four sections back for a rewrite; the rewritten ones come
 back with concrete thresholds and trade-offs where the untouched one stays at
-"use idempotent writes and a dead-letter queue".
+general advice: idempotent writes, deduplication and dead-letter queues.
 
 ## Layout
 
@@ -183,8 +189,8 @@ multi_agent/
   worker.py       hosts workflows+activities against a Temporal server
   starter.py      client: start, query, signal-approve, print
   report.py       pretty-printer
-run_demo.py       self-contained in-process runner
-tests/            end-to-end tests on the in-process test server
+run_demo.py       one-command runner (starts a local dev server)
+tests/            end-to-end tests on local Temporal servers
 ```
 
 ## Sibling projects

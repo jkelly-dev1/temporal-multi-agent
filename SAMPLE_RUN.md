@@ -48,9 +48,9 @@ self-critique step, and it is why the judge scores them 0.72 and 0.95.
 Average 0.867.
 
 Scores come from an LLM-as-judge constrained by a JSON schema, so `score`
-arrives as a validated number the workflow can branch on rather than something
+arrives as a validated number the workflow can branch on instead of something
 scraped out of prose. On the mock path the same seam uses a deterministic
-length heuristic, which is what keeps the test suite hermetic; see the
+length heuristic, so the test suite never calls a model; see the
 README's "Use a real LLM" section.
 
 This is not deterministic. Which sections get refined varies run to run; this
@@ -59,6 +59,8 @@ capture is one sample, not a guaranteed outcome.
 ---
 
 ## Output
+
+Not re-run by CI: it calls a paid model, and its output differs from run to run.
 
 ```
 stage: awaiting-approval

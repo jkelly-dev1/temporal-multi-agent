@@ -20,3 +20,6 @@ htmlcov/
 
 # Local notes, not part of the repository.
 PROJECT_BLURB.md
+
+# A copy of .env.example with a real key in it.
+.env

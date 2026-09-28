@@ -53,7 +53,8 @@ class ResearchAgentWorkflow:
     """A specialized agent: research a subtask, self-critique, and refine once.
 
     Runs as a child workflow so each agent has its own isolated, durable history
-    and can fail/retry without affecting its siblings.
+    and retries without affecting its siblings. A child that fails for good
+    fails the orchestrator, which then terminates the siblings still running.
     """
 
     MAX_ATTEMPTS = 2

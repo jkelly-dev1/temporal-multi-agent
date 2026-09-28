@@ -12,23 +12,25 @@ same two variables and a function-scoped fixture re-establishes the floor
 before the next test.
 """
 
+import os
+
 import pytest
 
 from multi_agent import providers
 
-# Every environment variable the Anthropic SDK will accept as a credential.
-# The gate in get_provider() only reads the first one, which is the safe
-# direction, since an unrecognized credential falls back to the mock. The
-# suite still clears all of them, so the floor does not depend on which one
-# the gate happens to look at.
-_CREDENTIAL_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+# The gate in get_provider() builds the real provider only when the API key
+# variable is set. The SDK itself accepts more than that (an auth token,
+# profiles, workload identity), so the fixture clears every variable with the
+# SDK's prefix, and the floor does not depend on which one the gate looks at.
+# Profile files on disk are not touched; the gate never reads them.
+_CREDENTIAL_PREFIX = "ANTHROPIC_"
 
 
 @pytest.fixture(autouse=True)
 def force_the_offline_mock(monkeypatch):
-    """Pin AGENT_PROVIDER=mock and clear every credential, for every test."""
+    """Pin AGENT_PROVIDER=mock and clear every ANTHROPIC_* variable."""
     monkeypatch.setenv("AGENT_PROVIDER", "mock")
-    for var in _CREDENTIAL_VARS:
+    for var in [v for v in os.environ if v.startswith(_CREDENTIAL_PREFIX)]:
         monkeypatch.delenv(var, raising=False)
     # The provider is a process-wide singleton, so a value cached under some
     # other environment would outlive the setenv above.

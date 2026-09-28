@@ -11,7 +11,7 @@ from typing import List
 
 from temporalio import activity
 
-from .providers import get_provider
+from .providers import FEEDBACK_MARKER, get_provider
 from .shared import (
     CONFIDENCE_BAR,
     AgentResult,
@@ -100,7 +100,7 @@ async def research_subtask(inp: ResearchInput) -> AgentResult:
     )
     prompt = st.question
     if inp.feedback:
-        prompt += f"\n\nReviewer feedback to address: {inp.feedback}"
+        prompt += f"\n\n{FEEDBACK_MARKER} {inp.feedback}"
 
     beat = asyncio.create_task(
         _heartbeat_until_cancelled(
@@ -129,7 +129,7 @@ async def critique_finding(result: AgentResult) -> Critique:
 
     Delegated to the provider so the judge is real when a real model is wired
     up (LLM-as-judge with a constrained JSON schema) and deterministic when it
-    is not, which is what keeps the tests hermetic.
+    is not, so the tests never depend on a model.
     """
     return await get_provider().critique(result.angle, result.finding)
 

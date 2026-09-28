@@ -1,7 +1,8 @@
-"""One-command demo: spins up an in-process Temporal dev server, runs a worker,
+"""One-command demo: starts a local Temporal dev server, runs a worker,
 starts an orchestration, approves its plan via a signal, and prints the report.
 
-No external Temporal CLI, Docker, or API key required:
+No Docker or API key required. The SDK downloads the dev-server binary on
+first use, so the first run needs network:
 
     python run_demo.py "optional research topic"
 """
@@ -21,9 +22,8 @@ from multi_agent.worker import ACTIVITIES, WORKFLOWS
 from multi_agent.workflows import OrchestratorWorkflow
 
 
-# ASCII on purpose: this repository's text is plain ASCII everywhere, and a
-# spinner is not worth the one exception. Four frames at 10fps still reads as
-# motion.
+# ASCII: this repository's text is plain ASCII everywhere, and a spinner is
+# not worth the one exception. Four frames at 10fps still reads as motion.
 _FRAMES = "|/-\\"
 
 
@@ -68,7 +68,8 @@ async def main() -> None:
     # scores above CONFIDENCE_BAR and the reflection loop never runs.
     # tests/test_end_to_end.py pins this.
     topic = " ".join(sys.argv[1:]).strip() or "multi-agent orchestration"
-    # start_local() downloads and runs a real Temporal dev server in-process.
+    # start_local() downloads a real Temporal dev server binary on first use
+    # and runs it as a subprocess.
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,

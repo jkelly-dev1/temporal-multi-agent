@@ -1,4 +1,4 @@
-# Core: Temporal Python SDK (workflows, activities, worker, in-process test server)
+# Core: Temporal Python SDK (workflows, activities, worker, local test servers)
 temporalio>=1.33.0,<2
 
 # Dev / test. pytest-asyncio 1.x needs an explicit mode; pytest.ini sets
@@ -7,5 +7,6 @@ pytest>=9.1.1
 pytest-asyncio>=1.4.0
 
 # Optional: real-LLM path (set AGENT_PROVIDER=anthropic and ANTHROPIC_API_KEY).
-# The demo runs fully offline with the built-in MockProvider without this.
-# anthropic>=0.40
+# The demo runs on the built-in MockProvider without this.
+# anthropic>=0.117  (the version installed and tested here; the critique
+#                     call passes output_config, which older SDKs reject)

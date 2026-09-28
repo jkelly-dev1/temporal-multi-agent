@@ -1,5 +1,5 @@
-"""End-to-end tests that run the whole multi-agent pipeline in an in-process
-Temporal test environment: no external server, no API key, fully deterministic.
+"""Tests that run the whole multi-agent pipeline on a local Temporal test
+server the SDK starts: no server of your own, no API key, fully deterministic.
 
     pytest -q
 """
@@ -11,6 +11,7 @@ import re
 import uuid
 
 import pytest
+from temporalio.api.enums.v1 import EventType
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -35,7 +36,7 @@ _DEFAULT_TOPIC = re.compile(r'sys\.argv\[1:\]\)\.strip\(\)\s*or\s*\(?\s*"([^"]+)
 # A bug in workflow code raises inside a workflow task, and Temporal retries a
 # failed workflow task forever, so that a deployed fix can rescue workflows
 # already in flight. In a test suite that retry loop shows up as a hang:
-# stubbing `research_subtask` to return the wrong type makes every end-to-end
+# stubbing `research_subtask` to return the wrong type makes every pipeline
 # test sit there until the runner's wall clock kills it, with no assertion and
 # no red line. So the test workers convert any such exception into a workflow
 # failure and the test fails in seconds. Production keeps the default, which
@@ -141,6 +142,21 @@ async def test_the_approval_gate_actually_blocks_before_the_signal():
             await asyncio.sleep(0.2)
             assert await handle.query(OrchestratorWorkflow.get_stage) == "awaiting-approval", (
                 "the workflow advanced past the gate without a signal")
+
+            # "No agent started" is read off the history, not the stage label:
+            # a workflow can report awaiting-approval while children run.
+            history = await handle.fetch_history()
+            children = [e for e in history.events if e.event_type
+                        == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED]
+            research = [e for e in history.events if e.event_type
+                        == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                        and e.activity_task_scheduled_event_attributes
+                        .activity_type.name == "research_subtask"]
+            assert children == [], f"{len(children)} agent(s) started before approval"
+            # research_subtask is scheduled by the CHILD workflows, so with no
+            # child started this sees only research the orchestrator scheduled
+            # itself; the children check above is the one that covers agents.
+            assert research == [], "research ran before approval"
 
             await handle.signal(OrchestratorWorkflow.approve_plan)
             report = await handle.result()
@@ -251,7 +267,7 @@ def test_the_readme_test_count_is_the_one_the_suite_collects():
         f"{collected.group(1)}")
 
 
-def test_the_suite_itself_cannot_reach_a_real_model():
+def test_the_suite_itself_cannot_reach_a_real_model(request):
     """The floor tests/conftest.py puts under the whole suite.
 
     `get_provider()` selects the real Anthropic path when AGENT_PROVIDER and a
@@ -265,11 +281,16 @@ def test_the_suite_itself_cannot_reach_a_real_model():
     """
     from multi_agent.providers import get_provider
 
+    # The environment checks below can pass without the fixture when the
+    # developer's own shell exports AGENT_PROVIDER=mock and no key, so the
+    # fixture's presence is asserted directly as well.
+    assert "force_the_offline_mock" in request.fixturenames, (
+        "the autouse fixture that pins the offline provider is not active")
     assert os.environ.get("AGENT_PROVIDER") == "mock", (
         "the suite is not pinned to the offline provider; a stray "
         "AGENT_PROVIDER can reach a real model from inside these tests")
-    assert "ANTHROPIC_API_KEY" not in os.environ, (
-        "a credential is visible to the suite")
+    assert not [v for v in os.environ if v.startswith("ANTHROPIC_")], (
+        "an ANTHROPIC_* variable is visible to the suite")
     assert get_provider().name == "mock", (
         "get_provider() did not return the mock under the pinned environment")
 
@@ -331,3 +352,17 @@ class TestProviderSelection:
     def test_an_unknown_provider_name_falls_back_rather_than_reaching_out(self):
         assert self._pick({"AGENT_PROVIDER": "openai",
                            "ANTHROPIC_API_KEY": "sk-x"}) == "MockProvider"
+
+
+def test_a_topic_that_says_feedback_is_not_read_as_a_revision():
+    """The mock revises only when the activity appended reviewer feedback. A
+    topic that merely contains the word would otherwise score as a revised
+    answer on its first pass, and the reflection loop would never run."""
+    from multi_agent.providers import FEEDBACK_MARKER, MockProvider
+
+    question = "What should an engineer know about feedback loops in control?"
+    first = asyncio.run(MockProvider().complete("sys", question))
+    revised = asyncio.run(MockProvider().complete(
+        "sys", f"{question}\n\n{FEEDBACK_MARKER} name the trade-offs"))
+    assert "Addressing the reviewer's note" not in first
+    assert "Addressing the reviewer's note" in revised
