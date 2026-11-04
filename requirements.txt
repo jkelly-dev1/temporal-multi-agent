@@ -3,7 +3,7 @@ temporalio>=1.33.0,<2
 
 # Dev / test. pytest-asyncio 1.x needs an explicit mode; pytest.ini sets
 # asyncio_mode = auto, which is what the async tests here rely on.
-pytest>=9.1.1
+pytest>=9.2.0
 pytest-asyncio>=1.4.0
 
 # Optional: real-LLM path (set AGENT_PROVIDER=anthropic and ANTHROPIC_API_KEY).
